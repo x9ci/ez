@@ -35,6 +35,97 @@ from tqdm import tqdm
 from arabic_handler import ArabicHandler  # بدون نقطة
 from page_processor import PageProcessor   # بدون نقطة
 
+
+def check_font_paths(self):
+    """التحقق من مسارات الخطوط المتوفرة"""
+    import os
+    
+    # القائمة الافتراضية للمجلدات المحتملة للخطوط
+    possible_font_dirs = [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        os.path.expanduser("~/.fonts"),
+        os.path.expanduser("~/Library/Fonts"),  # لنظام MacOS
+        "C:\\Windows\\Fonts",  # لنظام Windows
+        "./fonts"  # المجلد المحلي
+    ]
+    
+    found_fonts = []
+    
+    print("\nجاري البحث عن الخطوط المتوفرة...")
+    for font_dir in possible_font_dirs:
+        if os.path.exists(font_dir):
+            print(f"\nالبحث في المجلد: {font_dir}")
+            for root, dirs, files in os.walk(font_dir):
+                for file in files:
+                    if file.lower().endswith(('.ttf', '.otf')):
+                        if any(arabic_font in file.lower() for arabic_font in ['arab', 'amiri', 'noto', 'freesans']):
+                            full_path = os.path.join(root, file)
+                            found_fonts.append(full_path)
+                            print(f"تم العثور على خط: {full_path}")
+    
+    return found_fonts
+
+# تعديل دالة initialize_fonts
+def initialize_fonts(self):
+    """تهيئة الخطوط العربية"""
+    try:
+        font_paths = [
+            "/usr/share/fonts/truetype/fonts-arabeyes/ae_AlArabiya.ttf",
+            "/usr/share/fonts/truetype/fonts-arabeyes/ae_Furat.ttf",
+            "/usr/share/fonts/truetype/fonts-arabeyes/ae_Khalid.ttf",
+            "./fonts/Amiri-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+            "./fonts/FreeSans.ttf"
+        ]
+
+        loaded_fonts = []
+
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                try:
+                    if self.font_name not in pdfmetrics.getRegisteredFontNames():
+                        pdfmetrics.registerFont(TTFont(self.font_name, font_path))
+                        logging.info(f"تم تحميل الخط: {font_path}")
+                        loaded_fonts.append(font_path)
+                        return True
+                except Exception as e:
+                    logging.warning(f"فشل تحميل الخط {font_path}: {str(e)}")
+                    continue
+
+        if not loaded_fonts:
+            logging.warning("لم يتم العثور على أي خط عربي. جاري محاولة تنزيل خط Amiri...")
+            if self.download_amiri_font():
+                return self.initialize_fonts()  # إعادة المحاولة بعد التنزيل
+
+        return bool(loaded_fonts)
+
+    except Exception as e:
+        logging.error(f"خطأ في تهيئة الخطوط: {str(e)}")
+        return False
+
+def download_amiri_font(self):
+    """تنزيل خط أميري"""
+    import urllib.request
+    import os
+    
+    try:
+        font_url = "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf"
+        font_dir = "./fonts"
+        font_path = os.path.join(font_dir, "Amiri-Regular.ttf")
+        
+        # إنشاء مجلد الخطوط إذا لم يكن موجوداً
+        os.makedirs(font_dir, exist_ok=True)
+        
+        print("جاري تنزيل خط أميري...")
+        urllib.request.urlretrieve(font_url, font_path)
+        print(f"تم تنزيل الخط بنجاح إلى: {font_path}")
+        
+    except Exception as e:
+        print(f"خطأ في تنزيل الخط: {e}")
+
+
+
 # تهيئة التسجيل
 logging.basicConfig(
     level=logging.INFO,
@@ -150,27 +241,39 @@ class FontManager:
         """تهيئة الخطوط العربية"""
         try:
             font_paths = [
-                "/usr/share/fonts/truetype/arabic/Amiri-Regular.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_AlArabiya.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Furat.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Khalid.ttf",
                 "./fonts/Amiri-Regular.ttf",
                 "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-                "./fonts/FreeSans.ttf"
+                "./fonts/FreeSans.ttf",
+                os.path.expanduser("~/.fonts/Amiri-Regular.ttf"),
+                os.path.expanduser("~/.local/share/fonts/Amiri-Regular.ttf")
             ]
+
+            loaded_fonts = []
 
             for font_path in font_paths:
                 if os.path.exists(font_path):
                     try:
-                        pdfmetrics.registerFont(TTFont(self.font_name, font_path))
-                        print(f"تم تحميل الخط: {font_path}")
-                        return True
+                        if self.font_name not in pdfmetrics.getRegisteredFontNames():
+                            pdfmetrics.registerFont(TTFont(self.font_name, font_path))
+                            logging.info(f"تم تحميل الخط: {font_path}")
+                            loaded_fonts.append(font_path)
+                            return True
                     except Exception as e:
-                        print(f"خطأ في تحميل الخط {font_path}: {e}")
+                        logging.warning(f"فشل تحميل الخط {font_path}: {str(e)}")
                         continue
 
-            print("تحذير: لم يتم العثور على خط عربي مناسب")
-            return False
+            if not loaded_fonts:
+                logging.warning("لم يتم العثور على أي خط عربي. جاري محاولة تنزيل خط Amiri...")
+                if self.download_amiri_font():
+                    return self.initialize_fonts()  # إعادة المحاولة بعد التنزيل
+
+            return bool(loaded_fonts)
 
         except Exception as e:
-            print(f"خطأ في تهيئة الخطوط: {e}")
+            logging.error(f"خطأ في تهيئة الخطوط: {str(e)}")
             return False
 
 
@@ -182,36 +285,40 @@ class ArabicWriter:
     def initialize_fonts(self):
         """تهيئة الخطوط العربية"""
         try:
-            # قائمة الخطوط العربية
             font_paths = [
-                "/usr/share/fonts/truetype/arabic/Amiri-Regular.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_AlArabiya.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Furat.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Khalid.ttf",
                 "./fonts/Amiri-Regular.ttf",
                 "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-                "./fonts/FreeSans.ttf"
+                "./fonts/FreeSans.ttf",
+                os.path.expanduser("~/.fonts/Amiri-Regular.ttf"),
+                os.path.expanduser("~/.local/share/fonts/Amiri-Regular.ttf")
             ]
 
-            font_loaded = False
+            loaded_fonts = []
+
             for font_path in font_paths:
                 if os.path.exists(font_path):
                     try:
-                        # تسجيل الخط مرة واحدة فقط
-                        if 'Arabic' not in pdfmetrics.getRegisteredFontNames():
-                            pdfmetrics.registerFont(TTFont('Arabic', font_path))
-                            font_loaded = True
-                            print(f"تم تحميل الخط العربي: {font_path}")
-                            break
+                        if self.font_name not in pdfmetrics.getRegisteredFontNames():
+                            pdfmetrics.registerFont(TTFont(self.font_name, font_path))
+                            logging.info(f"تم تحميل الخط: {font_path}")
+                            loaded_fonts.append(font_path)
+                            return True
                     except Exception as e:
-                        print(f"خطأ في تحميل الخط {font_path}: {e}")
+                        logging.warning(f"فشل تحميل الخط {font_path}: {str(e)}")
                         continue
 
-            if not font_loaded:
-                print("تحذير: لم يتم العثور على خط عربي مناسب")
-                return False
+            if not loaded_fonts:
+                logging.warning("لم يتم العثور على أي خط عربي. جاري محاولة تنزيل خط Amiri...")
+                if self.download_amiri_font():
+                    return self.initialize_fonts()  # إعادة المحاولة بعد التنزيل
 
-            return True
+            return bool(loaded_fonts)
 
         except Exception as e:
-            print(f"خطأ في تهيئة الخطوط: {e}")
+            logging.error(f"خطأ في تهيئة الخطوط: {str(e)}")
             return False
 
     def write_arabic_text(self, canvas, text, x, y, width=None, height=None, align='right'):
@@ -612,20 +719,40 @@ class PDFTranslator:
         """تهيئة الخطوط العربية"""
         try:
             font_paths = [
-                "/usr/share/fonts/truetype/arabic/Amiri-Regular.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_AlArabiya.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Furat.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Khalid.ttf",
+                "./fonts/Amiri-Regular.ttf",
                 "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+                "./fonts/FreeSans.ttf",
+                os.path.expanduser("~/.fonts/Amiri-Regular.ttf"),
+                os.path.expanduser("~/.local/share/fonts/Amiri-Regular.ttf")
             ]
-            
+
+            loaded_fonts = []
+
             for font_path in font_paths:
                 if os.path.exists(font_path):
-                    pdfmetrics.registerFont(TTFont('Arabic', font_path))
-                    return
-            
-            # استخدام الخط الافتراضي إذا لم يتم العثور على الخطوط العربية
-            pdfmetrics.registerFont(TTFont('Arabic', "/usr/share/fonts/truetype/freefont/FreeSans.ttf"))
+                    try:
+                        if self.font_name not in pdfmetrics.getRegisteredFontNames():
+                            pdfmetrics.registerFont(TTFont(self.font_name, font_path))
+                            logging.info(f"تم تحميل الخط: {font_path}")
+                            loaded_fonts.append(font_path)
+                            return True
+                    except Exception as e:
+                        logging.warning(f"فشل تحميل الخط {font_path}: {str(e)}")
+                        continue
+
+            if not loaded_fonts:
+                logging.warning("لم يتم العثور على أي خط عربي. جاري محاولة تنزيل خط Amiri...")
+                if self.download_amiri_font():
+                    return self.initialize_fonts()  # إعادة المحاولة بعد التنزيل
+
+            return bool(loaded_fonts)
+
         except Exception as e:
-            logging.error(f"خطأ في تحميل الخطوط: {e}")
-            raise
+            logging.error(f"خطأ في تهيئة الخطوط: {str(e)}")
+            return False
 
     def cleanup(self):
         """تنظيف الملفات المؤقتة"""
@@ -998,87 +1125,60 @@ class PDFTranslator:
         end_y = page_height - ((original_bbox[1] + original_bbox[3]) / 2)
         canvas_obj.line(start_x, start_y, end_x, end_y)
     
-    def translate_pdf(self, input_path: str):
-        """الدالة الرئيسية لترجمة ملف PDF"""
-        input_path = Path(input_path)
-        self.current_pdf_path = str(input_path)
-        output_path = Path(self.config.OUTPUT_DIR) / f"translated_{input_path.stem}.pdf"
-        
+    def translate_pdf(self, input_path: str, output_path: str):
+        """ترجمة ملف PDF"""
         try:
-            if not self.validate_pdf(str(input_path)):
-                raise ValueError("ملف PDF غير صالح")
+            if not os.path.exists(input_path):
+                raise FileNotFoundError(f"الملف غير موجود: {input_path}")
 
-            logging.info(f"بدء ترجمة: {input_path}")
+            # إنشاء مجلد الإخراج إذا لم يكن موجوداً
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            # فتح الملف الأصلي
+            reader = PdfReader(input_path)
+            writer = PdfWriter()
+            total_pages = len(reader.pages)
+
+            print(f"عدد الصفحات: {total_pages}")
             
-            # فتح الملف وإنشاء القارئ والكاتب
-            with pdfplumber.open(str(input_path)) as plumber_pdf:
-                pdf_reader = PdfReader(str(input_path))
-                pdf_writer = PdfWriter()
-                total_pages = len(plumber_pdf.pages)
-                
-                # إنشاء شريط التقدم
-                progress_bar = self.create_progress_bar(total_pages)
-                
-                # معالجة كل صفحة
-                for page_num in range(total_pages):
-                    try:
-                        logging.info(f"معالجة الصفحة {page_num + 1}")
+            # معالجة كل صفحة
+            for page_num in range(total_pages):
+                try:
+                    print(f"\nمعالجة الصفحة {page_num + 1}")
+                    page = reader.pages[page_num]
+                    
+                    # استخراج النصوص
+                    with pdfplumber.open(input_path) as pdf:
+                        pdf_page = pdf.pages[page_num]
+                        text_blocks = pdf_page.extract_words()
                         
-                        # استخراج النص من الصفحة
-                        page = plumber_pdf.pages[page_num]
-                        text_content = self.extract_words_safely(page)
-                        
-                        if text_content:
-                            # معالجة النص واستخراج الترجمات
-                            translated_blocks = self.process_page(text_content, page_num)
-                            
-                            if translated_blocks:
-                                # إنشاء طبقة الترجمة
-                                width, height = float(page.width), float(page.height)
-                                overlay_packet = self.create_translated_overlay(
-                                    translated_blocks,
-                                    page_num,
-                                    (width, height)
-                                )
-                                
-                                # دمج الترجمة مع الصفحة الأصلية
-                                overlay_pdf = PdfReader(overlay_packet)
-                                page_obj = pdf_reader.pages[page_num]
-                                page_obj.merge_page(overlay_pdf.pages[0])
-                                pdf_writer.add_page(page_obj)
-                            else:
-                                pdf_writer.add_page(pdf_reader.pages[page_num])
-                        else:
-                            pdf_writer.add_page(pdf_reader.pages[page_num])
-                            
-                        # تحديث شريط التقدم
-                        if progress_bar:
-                            progress_bar.update(1)
-                            
-                        # تحسين استخدام الذاكرة
-                        if page_num % 5 == 0:
-                            self.optimize_memory_usage()
-                            
-                    except Exception as e:
-                        logging.error(f"خطأ في معالجة الصفحة {page_num + 1}: {str(e)}")
-                        pdf_writer.add_page(pdf_reader.pages[page_num])
-                        continue
+                    # ترجمة النصوص المستخرجة
+                    translated_blocks = self.translate_blocks(text_blocks)
+                    
+                    # هنا نضيف الكود الجديد
+                    if translated_blocks:
+                        overlay = self.create_translated_overlay(
+                            translated_blocks,
+                            (float(page.mediabox[2]), float(page.mediabox[3]))
+                        )
+                        page.merge_page(PdfReader(overlay).pages[0])
+                    
+                    writer.add_page(page)
 
-                # حفظ الملف المترجم
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(str(output_path), 'wb') as output_file:
-                    pdf_writer.write(output_file)
-                
-                # حفظ البيانات الوصفية
-                self.save_translation_metadata(input_path, output_path)
-                
-                logging.info("اكتملت الترجمة بنجاح")
-                
+                except Exception as e:
+                    print(f"خطأ في معالجة الصفحة {page_num + 1}: {str(e)}")
+                    writer.add_page(reader.pages[page_num])
+
+            # حفظ الملف المترجم
+            with open(output_path, 'wb') as output_file:
+                writer.write(output_file)
+
+            print(f"\nتمت الترجمة بنجاح!")
+            print(f"يمكنك العثور على الملف المترجم في: {output_path}")
+
         except Exception as e:
-            logging.error(f"خطأ في عملية الترجمة: {str(e)}")
+            print(f"خطأ في ترجمة الملف: {str(e)}")
             raise
-        finally:
-            self.cleanup()
 
     def extract_words_safely(self, page) -> list:
         """استخراج الكلمات من الصفحة بشكل آمن"""
@@ -1772,10 +1872,20 @@ class ArabicTextHandler:
             # قائمة المسارات المحتملة للخطوط
             current_dir = Path(__file__).parent
             font_paths = [
-                "/usr/share/fonts/truetype/arabic/Amiri-Regular.ttf",
+                # الخطوط العربية المتوفرة في النظام
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_AlArabiya.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Furat.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Khalid.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Petra.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Salem.ttf",
+                
+                # مسارات محلية احتياطية
                 str(current_dir / "fonts" / "Amiri-Regular.ttf"),
-                "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-                str(current_dir / "fonts" / "FreeSans.ttf")
+                str(current_dir / "fonts" / "ae_AlArabiya.ttf"),
+                str(current_dir / "fonts" / "FreeSans.ttf"),
+                
+                # خطوط احتياطية من النظام
+                "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
             ]
 
             # إنشاء مجلد الخطوط إذا لم يكن موجوداً
@@ -1786,13 +1896,40 @@ class ArabicTextHandler:
             font_loaded = False
             for font_path in font_paths:
                 if os.path.exists(font_path):
-                    pdfmetrics.registerFont(TTFont('Arabic', font_path))
-                    print(f"تم تحميل الخط: {font_path}")
-                    font_loaded = True
-                    break
+                    try:
+                        if self.font_name not in pdfmetrics.getRegisteredFontNames():
+                            pdfmetrics.registerFont(TTFont(self.font_name, font_path))
+                            print(f"تم تحميل الخط: {font_path}")
+                            font_loaded = True
+                            break
+                    except Exception as e:
+                        print(f"فشل تحميل الخط {font_path}: {str(e)}")
+                        continue
 
             if not font_loaded:
-                # إذا لم يتم العثور على الخط، قم بتحميله
+                # محاولة نسخ خط عربي من النظام إلى المجلد المحلي
+                system_fonts = [
+                    "/usr/share/fonts/truetype/fonts-arabeyes/ae_AlArabiya.ttf",
+                    "/usr/share/fonts/truetype/fonts-arabeyes/ae_Furat.ttf",
+                    "/usr/share/fonts/truetype/fonts-arabeyes/ae_Salem.ttf"
+                ]
+                
+                for system_font in system_fonts:
+                    if os.path.exists(system_font):
+                        dest_path = fonts_dir / Path(system_font).name
+                        try:
+                            shutil.copy2(system_font, dest_path)
+                            pdfmetrics.registerFont(TTFont(self.font_name, str(dest_path)))
+                            print(f"تم نسخ وتحميل الخط: {dest_path}")
+                            font_loaded = True
+                            break
+                        except Exception as e:
+                            print(f"فشل نسخ الخط {system_font}: {str(e)}")
+                            continue
+
+            if not font_loaded:
+                # إذا لم يتم العثور على أي خط، قم بتحميله من الإنترنت
+                print("لم يتم العثور على خط عربي. جاري محاولة التحميل من الإنترنت...")
                 self.download_arabic_font()
 
         except Exception as e:
@@ -1800,21 +1937,42 @@ class ArabicTextHandler:
             raise
 
     def download_arabic_font(self):
-        """تحميل الخط العربي"""
+        """تحميل الخط العربي من الإنترنت"""
         try:
             import requests
-            font_url = "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf"
-            font_path = Path(__file__).parent / "fonts" / "Amiri-Regular.ttf"
+            # قائمة روابط الخطوط
+            font_urls = [
+                "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf",
+                "https://github.com/aerrami/arabic-fonts/raw/master/ae_AlArabiya.ttf"
+            ]
             
-            response = requests.get(font_url)
-            response.raise_for_status()
+            fonts_dir = Path(__file__).parent / "fonts"
+            success = False
             
-            with open(font_path, 'wb') as f:
-                f.write(response.content)
+            for font_url in font_urls:
+                try:
+                    font_name = Path(font_url).name
+                    font_path = fonts_dir / font_name
+                    
+                    print(f"جاري محاولة تحميل الخط: {font_name}")
+                    response = requests.get(font_url)
+                    response.raise_for_status()
+                    
+                    with open(font_path, 'wb') as f:
+                        f.write(response.content)
+                    
+                    pdfmetrics.registerFont(TTFont(self.font_name, str(font_path)))
+                    print(f"تم تحميل الخط {font_name} بنجاح")
+                    success = True
+                    break
+                    
+                except Exception as e:
+                    print(f"فشل تحميل الخط {font_name}: {str(e)}")
+                    continue
             
-            pdfmetrics.registerFont(TTFont('Arabic', str(font_path)))
-            print("تم تحميل الخط العربي بنجاح")
-            
+            if not success:
+                raise Exception("فشل تحميل جميع الخطوط المتاحة")
+                
         except Exception as e:
             print(f"خطأ في تحميل الخط العربي: {e}")
             raise
@@ -1841,58 +1999,152 @@ class ArabicTextHandler:
         except Exception as e:
             print(f"خطأ في حساب أبعاد النص: {e}")
             return 0, 0
-
-def main():
-    try:
-        print("بدء تشغيل برنامج ترجمة PDF...")
-        
-        # تأكد من تثبيت googletrans بالإصدار الصحيح
+    
+    def main():
         try:
-            from googletrans import Translator
-            translator = Translator()
-            test_translation = translator.translate("Hello", dest='ar')
-            print(f"اختبار الترجمة: {test_translation.text}")
-        except Exception as e:
-            print("خطأ في Googletrans. جاري إعادة التثبيت...")
-            os.system('pip install googletrans==3.1.0a0')
-            print("تم إعادة تثبيت Googletrans")
-        
-        
-        # إنشاء مجلد للخطوط إذا لم يكن موجوداً
-        fonts_dir = Path("fonts")
-        fonts_dir.mkdir(exist_ok=True)
-        
-        config = PDFTranslatorConfig()
-        text_processor = TextProcessor()
-        page_processor = PageProcessor(text_processor)
-        pdf_handler = PDFHandler(config, page_processor)
-        
-        input_file = Path("/home/dc/Public/pdftopdf/pdftran/input/test1.pdf")
-        
-        if not validate_input_file(input_file):
-            return
-        
-        print(f"جاري ترجمة: {input_file.name}")
-        print("هذه العملية قد تستغرق بعض الوقت، يرجى الانتظار...")
-        
-        # تأكد من وجود خط عربي
-        if not any(Path(p).exists() for p in [
-            "/usr/share/fonts/truetype/arabic/Amiri-Regular.ttf",
-            "./fonts/Amiri-Regular.ttf"
-        ]):
-            print("تحميل الخط العربي...")
-            # هنا يمكنك إضافة كود لتحميل الخط العربي تلقائياً
+            print("تهيئة النظام...")
+
+            # تعريف معالج النص العربي
+            class ArabicTextHandler:
+                @staticmethod
+                def process_text(text):
+                    try:
+                        import arabic_reshaper
+                        from bidi.algorithm import get_display
+                        
+                        # معالجة النص العربي
+                        reshaped_text = arabic_reshaper.reshape(text)
+                        bidi_text = get_display(reshaped_text)
+                        return bidi_text
+                    except Exception as e:
+                        print(f"خطأ في معالجة النص العربي: {e}")
+                        return text
+
+            # إعداد المجلدات الأساسية
+            current_dir = Path(__file__).parent
+            fonts_dir = current_dir / "fonts"
+            input_dir = current_dir / "input"
+            output_dir = current_dir / "output"
             
-        pdf_handler.translate_pdf(str(input_file))
+            for directory in [fonts_dir, input_dir, output_dir]:
+                directory.mkdir(exist_ok=True)
+
+            # التحقق من تثبيت googletrans وتهيئته
+            try:
+                from googletrans import Translator
+                translator = Translator()
+                test_translation = translator.translate("Hello", dest='ar')
+                print(f"اختبار الترجمة: {test_translation.text}")
+            except Exception as e:
+                print("خطأ في Googletrans. جاري إعادة التثبيت...")
+                os.system('pip install googletrans==3.1.0a0')
+                from googletrans import Translator
+                translator = Translator()
+                print("تم إعادة تثبيت Googletrans")
+            
+            # التحقق من الخطوط العربية
+            arabic_fonts = [
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_AlArabiya.ttf",
+                "/usr/share/fonts/truetype/fonts-arabeyes/ae_Salem.ttf",
+                str(fonts_dir / "ae_AlArabiya.ttf"),
+                str(fonts_dir / "Amiri-Regular.ttf")
+            ]
+            
+            font_found = False
+            for font_path in arabic_fonts:
+                if Path(font_path).exists():
+                    if font_path.startswith("/usr/share"):
+                        dest_path = fonts_dir / Path(font_path).name
+                        if not dest_path.exists():
+                            shutil.copy2(font_path, dest_path)
+                    print(f"تم تحميل الخط: {font_path}")
+                    font_found = True
+                    break
+            
+            if not font_found:
+                print("جاري تحميل الخط العربي...")
+                try:
+                    import requests
+                    font_url = "https://github.com/aerrami/arabic-fonts/raw/master/ae_AlArabiya.ttf"
+                    font_path = fonts_dir / "ae_AlArabiya.ttf"
+                    response = requests.get(font_url)
+                    response.raise_for_status()
+                    with open(font_path, 'wb') as f:
+                        f.write(response.content)
+                    print("تم تحميل الخط العربي بنجاح")
+                except Exception as e:
+                    print(f"خطأ في تحميل الخط العربي: {e}")
+                    raise
+            
+            print("تم تهيئة النظام بنجاح")
+            
+            # تهيئة مكونات المعالجة
+            config = PDFTranslatorConfig()
+            text_processor = TextProcessor()
+            text_processor.arabic_handler = ArabicTextHandler()  # إضافة معالج النص العربي
+            page_processor = PageProcessor(text_processor)
+            pdf_handler = PDFHandler(config, page_processor)
+            
+            # التحقق من ملف الإدخال
+            username = os.getenv('USER', 'dc')  # استخدام اسم المستخدم الصحيح
+            input_file = Path(f"/home/{username}/Public/pdftopdf/pdftran/input/document.pdf")
+            
+            if not input_file.exists():
+                print(f"خطأ: الملف غير موجود في: {input_file}")
+                input_dir = input_file.parent
+                if input_dir.exists():
+                    pdf_files = list(input_dir.glob("*.pdf"))
+                    if pdf_files:
+                        print("\nالملفات PDF المتوفرة في مجلد input:")
+                        for pdf in pdf_files:
+                            print(f"- {pdf.name}")
+                    else:
+                        print("\nلا توجد ملفات PDF في مجلد input")
+                else:
+                    print(f"\nمجلد input غير موجود في: {input_dir}")
+                    try:
+                        input_dir.mkdir(parents=True, exist_ok=True)
+                        print(f"تم إنشاء مجلد input في: {input_dir}")
+                    except Exception as e:
+                        print(f"خطأ في إنشاء المجلد: {e}")
+                return
+            
+            print(f"جاري ترجمة: {input_file.name}")
+            print("هذه العملية قد تستغرق بعض الوقت، يرجى الانتظار...")
+            
+            # بدء عملية الترجمة
+            pdf_handler.translate_pdf(str(input_file))
+            
+            print("\nتمت الترجمة بنجاح!")
+            print(f"يمكنك العثور على الملف المترجم في مجلد: {config.OUTPUT_DIR}")
+            
+        except Exception as e:
+            print(f"\nحدث خطأ: {str(e)}")
+            logging.error(f"خطأ في البرنامج الرئيسي: {str(e)}")
+        finally:
+            print("\nانتهى البرنامج")
+
+    if __name__ == "__main__":
+        import os
+        import sys
+        import logging
+        import shutil
+        from pathlib import Path
         
-        print("\nتمت الترجمة بنجاح!")
-        print(f"يمكنك العثور على الملف المترجم في مجلد: {config.OUTPUT_DIR}")
-
-    except Exception as e:
-        print(f"\nحدث خطأ: {str(e)}")
-        logging.error(f"خطأ في البرنامج الرئيسي: {str(e)}")
-    finally:
-        print("\nانتهى البرنامج")
-
-if __name__ == "__main__":
-    main()
+        # تثبيت المكتبات المطلوبة
+        required_packages = [
+            'arabic-reshaper',
+            'python-bidi',
+            'googletrans==3.1.0a0',
+            'reportlab',
+            'requests'
+        ]
+        
+        for package in required_packages:
+            try:
+                __import__(package.split('==')[0])
+            except ImportError:
+                print(f"تثبيت حزمة {package}...")
+                os.system(f'pip install {package}')
+        
+        main()
